@@ -1,0 +1,4 @@
+"0","titanic_clean %>% "
+"0","  ggplot(aes(x = survived_flag)) +"
+"0","  geom_bar(aes(fill = age_status), show.legend = F) +"
+"0","  facet_wrap(~ age_status)"

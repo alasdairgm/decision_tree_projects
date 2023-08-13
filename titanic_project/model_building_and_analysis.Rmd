@@ -1,0 +1,181 @@
+---
+title: "Titanic survivors decision tree"
+output: html_notebook
+---
+
+# Introduction
+
+In this report I will create a decision tree to see which factors are useful in predicting whether or not a passenger on the titanic survived.
+
+```{r}
+library(rpart) # to create the tree
+library(rpart.plot) # to plot the tree
+library(splitstackshape) # to force stratification on test and training sets
+library(tidyverse)
+
+titanic_set <- read_csv('data/titanic_decision_tree_data.csv')
+
+# create a vector of all the row numbers randomised
+shuffle_index <- sample(1:nrow(titanic_set))
+
+# shuffle the data so class order isn't in order - need this for training/testing split later on 
+titanic_set <- titanic_set[shuffle_index, ]
+```
+
+## Data dictionary
+
+* sex: Biological Sex, male or female
+* age_status: adult or child (child defined as under 16)
+* class : Ticket class, 1 = 1st (Upper class), 2 = 2nd (Middle Class), 3 = 3rd (Lower Class)
+* port_embarkation: C = Cherbourg (France), Q = Queenstown (Ireland), S = Southampton (UK)
+* sibsp : number of siblings / spouses aboard the Titanic
+* parch: number of parents / children aboard the Titanic. Some children travelled only with a nanny, therefore parch=0 for them.
+* survived_flag : did they survive, 0 = No, 1 = Yes
+
+
+
+# Data cleaning
+
+Data currently contains several variables that will not be useful in model building, as well as missing data and variables that would be better suited as factors (with interpretable levels.
+
+```{r}
+titanic_clean <- titanic_set %>% 
+  filter(!is.na(survived)) %>%  # remove passengers without a survived flag
+  # turn important variables into factors
+  mutate(across(c(sex, pclass, embarked), as.factor)) %>% 
+  # create an age_status variable which groups passengers into children and adults
+  mutate(age_status = if_else(age <= 16, "child", "adult"), .after = age) %>% 
+  # make class and survived , variables more interpretable
+  mutate(class = factor(pclass, levels = c(3,2,1), labels = c("Lower", "Middle", "Upper")),
+         survived_flag = factor(survived, levels = c(0,1), labels = c("No", "Yes")),
+         port_embarked = factor(embarked, levels = c("S", "C", "Q"), labels = c("Southampton", "Cherbourg", "Queenstown"))) %>% 
+  select(-c(1, passenger_id, name, ticket, fare, cabin)) %>% # drop the unhelpful variables
+  drop_na() 
+```
+
+
+# Data visualisation
+
+```{r}
+titanic_clean %>% 
+  ggplot(aes(x = survived_flag)) +
+  geom_bar(fill = "indianred")
+```
+
+We can see here that around 280 passengers survived vs over 400 who did not.
+
+```{r}
+titanic_clean %>% 
+  ggplot(aes(x = survived_flag)) +
+  geom_bar(aes(fill = sex), show.legend = F) +
+  facet_wrap(~ sex)
+```
+This bar chart shows that women were more likely to survive than men.
+
+```{r}
+titanic_clean %>% 
+  ggplot(aes(x = survived_flag)) +
+  geom_bar(aes(fill = class), show.legend = F) +
+  facet_wrap(~ class)
+```
+
+Being lower class meant a much higher chance of not surviving.
+
+```{r}
+titanic_clean %>% 
+  ggplot(aes(x = survived_flag)) +
+  geom_bar(aes(fill = age_status), show.legend = F) +
+  facet_wrap(~ age_status)
+```
+
+Much better odds of surviving if you were a child.
+
+```{r}
+titanic_clean %>% 
+  ggplot(aes(x = survived_flag)) +
+  geom_bar(aes(fill = port_embarked), show.legend = F) +
+  facet_wrap(~ port_embarked)
+```
+Most passengers boarded at Southampton, and these were more likely to die. Let's see proportions.
+
+```{r}
+titanic_clean %>% 
+  group_by(port_embarked) %>% 
+  summarise(
+    prop = n()/nrow(titanic_clean) * 100,
+    n_survived = sum(survived[survived_flag == "Yes"]),
+    n_total = n(),
+    survived_prop = n_survived/n_total * 100) %>% 
+  ggplot(aes(x = port_embarked, y = survived_prop)) +
+  geom_col(aes(fill = port_embarked), show.legend = F) 
+```
+
+Passengers who boarded in France were most likely to survive, then those from England, then Ireland.
+
+
+# Model preparation
+
+## Create test and train sets
+
+```{r}
+# set the random seed number to keep interpretations of model consistent with model itself
+set.seed(3)
+
+n_data <- nrow(titanic_clean)
+
+# create a test sample index
+test_index <- sample(1:n_data, size = n_data*0.2)
+
+# create test set
+titanic_test  <- slice(titanic_clean, test_index)
+
+# create training set
+titanic_train <- slice(titanic_clean, -test_index)
+
+# check balanced sets
+titanic_test %>%
+ janitor::tabyl(survived_flag)
+```
+
+```{r}
+titanic_train %>% 
+  janitor::tabyl(survived_flag)
+```
+Proportions are not so similar between sets.
+
+
+### Force stratification
+
+```{r}
+sets <- stratified(titanic_clean, group = c("survived_flag", "sex", "class", "age_status"), bothSets = TRUE, size = 0.2)
+
+titanic_test <- sets$SAMP1
+titanic_train <- sets$SAMP2
+
+nrow(titanic_test)
+nrow(titanic_train)
+```
+
+```{r}
+titanic_test %>%
+ janitor::tabyl(survived_flag)
+```
+
+```{r}
+titanic_train %>%
+  janitor::tabyl(survived_flag)
+```
+
+Survived proportions are much more similar between sets now.
+
+
+# Decision tree
+
+```{r}
+titanic_fitted <- rpart(survived_flag ~ ., 
+                     data = titanic_train, 
+                     method = 'class')
+
+rpart.plot(titanic_fitted, yesno = 2)
+```
+
