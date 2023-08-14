@@ -1,0 +1,2 @@
+"0","titanic_test_pred %>%"
+"0","  accuracy(truth = survived_flag, estimate = pred)"

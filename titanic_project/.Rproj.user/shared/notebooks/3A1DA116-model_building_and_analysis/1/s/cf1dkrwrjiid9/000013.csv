@@ -1,0 +1,4 @@
+"0","titanic_test_pred_rf <- titanic_test %>%"
+"0","  mutate(pred = predict(rf_classifier, data = titanic_test)$predictions)"
+"0",""
+"0","titanic_test_pred_rf"

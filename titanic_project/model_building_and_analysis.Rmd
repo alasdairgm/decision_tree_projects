@@ -1,6 +1,13 @@
 ---
 title: "Titanic survivors decision tree"
-output: html_notebook
+output:
+  html_document:
+    toc: true # contents
+    toc_float: true # contents float
+    number_sections: true
+    df_print: paged # paged dataframes
+    css: styles.css # use css file from this project
+  pdf_document: default
 ---
 
 # Introduction
@@ -49,7 +56,7 @@ titanic_clean <- titanic_set %>%
   mutate(class = factor(pclass, levels = c(3,2,1), labels = c("Lower", "Middle", "Upper")),
          survived_flag = factor(survived, levels = c(0,1), labels = c("No", "Yes")),
          port_embarked = factor(embarked, levels = c("S", "C", "Q"), labels = c("Southampton", "Cherbourg", "Queenstown"))) %>% 
-  select(-c(1, passenger_id, name, ticket, fare, cabin)) %>% # drop the unhelpful variables
+  select(-c(1, pclass, embarked, passenger_id, name, ticket, fare, cabin)) %>% # drop the unhelpful variables
   drop_na() 
 ```
 
@@ -96,14 +103,16 @@ titanic_clean %>%
   geom_bar(aes(fill = port_embarked), show.legend = F) +
   facet_wrap(~ port_embarked)
 ```
+
 Most passengers boarded at Southampton, and these were more likely to die. Let's see proportions.
+
 
 ```{r}
 titanic_clean %>% 
   group_by(port_embarked) %>% 
   summarise(
     prop = n()/nrow(titanic_clean) * 100,
-    n_survived = sum(survived[survived_flag == "Yes"]),
+    n_survived = sum(survived),
     n_total = n(),
     survived_prop = n_survived/n_total * 100) %>% 
   ggplot(aes(x = port_embarked, y = survived_prop)) +
@@ -114,6 +123,14 @@ Passengers who boarded in France were most likely to survive, then those from En
 
 
 # Model preparation
+
+First, will ditch numeric survived variable.
+
+```{r}
+titanic_clean <- titanic_clean %>% 
+  select(-survived)
+```
+
 
 ## Create test and train sets
 
@@ -178,4 +195,134 @@ titanic_fitted <- rpart(survived_flag ~ .,
 
 rpart.plot(titanic_fitted, yesno = 2)
 ```
+
+Overall there's a 0.4 probability of surviving the Titanic. By splitting the data at nodes using e.g. age, class and sex, we can predict whether a passenger will survive. For example, a woman who is not in the Lower class is predicted as surviving (with a probability of survival of > 0.9).
+
+
+
+# Test model
+
+```{r}
+library(modelr)
+library(yardstick)
+library(caret)
+```
+
+```{r}
+# add the predictions
+titanic_test_pred <- titanic_test %>%
+                 add_predictions(titanic_fitted, type = 'class')
+
+
+conf_mat <- titanic_test_pred %>%
+              conf_mat(truth = survived_flag, estimate = pred)
+conf_mat
+```
+
+## Accuracy
+
+```{r}
+titanic_test_pred %>%
+  accuracy(truth = survived_flag, estimate = pred)
+```
+
+Model has very good accuracy.
+
+## Sensitivity
+
+```{r}
+titanic_test_pred %>%
+  yardstick::sensitivity(truth = survived_flag, estimate = pred,
+                         event_level = "second") # specify that truth is 'yes', 2nd col
+```
+
+Model has good sensitivity (true positive rate).
+
+## Specificity
+
+```{r}
+titanic_test_pred %>%
+  yardstick::specificity(truth = survived_flag, estimate = pred,
+                         event_level = "second") # specify that truth is 'yes', 2nd col
+```
+Model has great specificity (true negative rate).
+
+
+# Random forest approach
+
+```{r}
+library(ranger)
+
+rf_classifier <- ranger(survived_flag ~ ., 
+                        data = titanic_train, 
+                        importance = "impurity", # i.e. judge variables on how cleanly they split data 
+                        num.trees = 1000, 
+                        mtry = 2, 
+                        min.node.size = 5)
+
+rf_classifier
+```
+
+Three hyperparameters:
+
+1) `num.trees` - number of trees to construct
+2) `mtry` - number of variables to choose from while splitting at each node
+3) `min.node.size` - Minimal node size to split at. Default 5 is regression, 1 is classification etc.
+
+19% out-of-bag prediction error i.e. how classifier performs on data it has not seen.
+
+```{r}
+importance(rf_classifier)
+```
+
+Can see here that sex, class, and age are the most important variables in the final performance of the classifier.
+
+
+## Test model
+
+Let's add the predictions:
+```{r}
+titanic_test_pred_rf <- titanic_test %>%
+  mutate(pred = predict(rf_classifier, data = titanic_test)$predictions)
+
+titanic_test_pred_rf
+```
+
+```{r}
+conf_mat_rf <- titanic_test_pred_rf %>%
+              conf_mat(truth = survived_flag, estimate = pred)
+
+conf_mat_rf
+```
+ 
+### Accuracy
+
+```{r}
+titanic_test_pred %>%
+             accuracy(truth = survived_flag, estimate = pred)
+```
+
+Random forest model has good accuracy.
+
+### Sensitivity
+
+```{r}
+titanic_test_pred_rf %>%
+             yardstick::sensitivity(truth = survived_flag, estimate = pred,
+                                    event_level = "second")
+```
+
+Random forest model has okay sensitivity (true positive rate).
+
+
+### Specificity
+
+```{r}
+titanic_test_pred_rf %>%
+             yardstick::specificity(truth = survived_flag, estimate = pred,
+                                    event_level = "second")
+```
+
+Random forest model has great specificity (true negative rate).
+
 

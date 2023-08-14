@@ -1,0 +1,3 @@
+"0","titanic_test_pred_rf %>%"
+"0","             yardstick::sensitivity(truth = survived_flag, estimate = pred,"
+"0","                                    event_level = ""second"")"

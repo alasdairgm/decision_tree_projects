@@ -1,0 +1,2 @@
+"0","titanic_clean <- titanic_clean %>% "
+"0","  select(-survived)"

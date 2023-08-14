@@ -1,0 +1,3 @@
+"0","titanic_test_pred %>%"
+"0","  yardstick::specificity(truth = survived_flag, estimate = pred,"
+"0","                         event_level = ""second"") # specify that truth is 'yes', 2nd col"

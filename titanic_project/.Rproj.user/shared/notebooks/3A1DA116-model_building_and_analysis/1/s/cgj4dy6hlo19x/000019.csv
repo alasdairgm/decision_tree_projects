@@ -1,0 +1,5 @@
+"0","titanic_fitted <- rpart(survived_flag ~ ., "
+"0","                     data = titanic_train, "
+"0","                     method = 'class')"
+"0",""
+"0","rpart.plot(titanic_fitted, yesno = 2)"
